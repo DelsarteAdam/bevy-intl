@@ -1,28 +1,11 @@
 #![allow(dead_code)]
-//! # bevy-intl
-//!
-//! `bevy-intl` is an internationalization (i18n) plugin for Bevy.
-//! It allows you to load translations, handle plurals, genders, and placeholders,
-//! and easily switch languages at runtime in your Bevy applications.
-//!
-//! ## Example
-//! ```rust
-//! use bevy::prelude::*;
-//! use bevy_intl::{I18n, Translation};
-//!
-//! fn spawn_text(mut commands: Commands, mut i18n: ResMut<I18n>) {
-//!     let text = i18n.translation("test");
-//!     commands.spawn((
-//!         Text::new(text.t("hello_world")),
-//!         Node {
-//!             position_type: PositionType::Absolute,
-//!             bottom: Val::Px(5.0),
-//!             right: Val::Px(5.0),
-//!             ..default()
-//!         },
-//!     ));
-//! }
-//! ```
+/*! # bevy-intl
+
+bevy-intl` is an internationalization (i18n) plugin for Bevy.
+It allows you to load translations, handle plurals, genders, and placeholders,
+and easily switch languages at runtime in your Bevy applications.
+
+!*/
 
 use bevy::prelude::*;
 
