@@ -20,18 +20,20 @@ A simple internationalization (i18n) plugin for [Bevy](https://bevyengine.org/) 
 
 ## Folder Structure
 
+```
 messages/
 ├── en/
-│ ├── test.json
-│ └── another_file.json
+│   ├── test.json
+│   └── another_file.json
 ├── fr/
-│ ├── test.json
-│ └── another_file.json
+│   ├── test.json
+│   └── another_file.json
 └── es/
-├── test.json
-└── another_file.json
+    ├── test.json
+    └── another_file.json
 assets/
 src/
+```
 
 ---
 
