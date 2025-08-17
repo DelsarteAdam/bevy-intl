@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "bevy-intl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bevy",
  "once_cell",
