@@ -14,7 +14,6 @@ mod locales;
 use serde::Deserialize;
 use std::collections::{ HashMap, HashSet };
 use std::fs;
-use std::path::PathBuf;
 use serde_json::Value;
 use locales::LOCALES;
 use regex::Regex;
@@ -100,7 +99,7 @@ fn load_translation() -> std::io::Result<LangMap> {
     //check translation symetry for missing file/folder
     check_for_missing_file();
     //find messages folder at the root project
-    let mut message_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut message_dir = std::env::current_dir().unwrap();
     message_dir.push("messages");
 
     let mut langhash: LangMap = HashMap::new();
@@ -173,7 +172,7 @@ fn load_translation() -> std::io::Result<LangMap> {
 /// Validates each folder against the international standard.
 fn get_folder_locale_list() -> std::io::Result<Vec<String>> {
     //find messages folder at the root project
-    let mut message_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut message_dir = std::env::current_dir().unwrap();
     message_dir.push("messages");
 
     let mut locale_list = Vec::new();
@@ -426,7 +425,7 @@ fn locale_exists_as_international_standard(locale: &str) -> bool {
 /// Checks for missing translation files across all language folders.
 fn check_for_missing_file() {
     // find messages folder at the root project
-    let mut message_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut message_dir = std::env::current_dir().unwrap();
     message_dir.push("messages");
 
     if !message_dir.is_dir() {
