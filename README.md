@@ -27,7 +27,7 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 bevy = "0.16"
-bevy-intl = "0.2.0"
+bevy-intl = "0.2.1"
 
 # Optional: Force bundled translations on all platforms
 # bevy-intl = { version = "0.2.0", features = ["bundle-only"] }
@@ -100,10 +100,10 @@ src/
 **Force Bundled Mode:**
 
 ```toml
-bevy-intl = { version = "0.2.0", features = ["bundle-only"] }
+bevy-intl = { version = "0.2.1", features = ["bundle-only"] }
 ```
 
-This forces bundled translations on all platforms, useful for:
+This forces bundled translations on all platforms
 
 ---
 
