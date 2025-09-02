@@ -141,6 +141,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.99"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -304,8 +310,9 @@ dependencies = [
 
 [[package]]
 name = "bevy-intl"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
+ "anyhow",
  "bevy",
  "once_cell",
  "regex",
