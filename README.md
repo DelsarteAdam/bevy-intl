@@ -21,11 +21,11 @@ A pragmatic internationalization (i18n) plugin for [Bevy](https://bevyengine.org
 
 ```toml
 [dependencies]
-bevy = "0.18"
-bevy-intl = "0.3"
+bevy = "0.20"
+bevy-intl = "0.4"
 
 # Optional: force bundled translations on every target (e.g. for shipping a single binary)
-# bevy-intl = { version = "0.3", features = ["bundle-only"] }
+# bevy-intl = { version = "0.4", features = ["bundle-only"] }
 ```
 
 ```rust
@@ -52,6 +52,7 @@ fn main() {
 
 | Bevy   | bevy-intl |
 | ------ | --------- |
+| 0.20.x | `0.4.x`   |
 | 0.18.x | `0.3.x`   |
 | 0.17.x | `0.2.2`   |
 | 0.16.x | `0.2.1`   |
@@ -231,7 +232,7 @@ Bevy 0.18 renamed buffered events to *messages*, so `LanguageChanged` derives `M
 To force bundled mode on every target — for example, to ship a single binary:
 
 ```toml
-bevy-intl = { version = "0.3", features = ["bundle-only"] }
+bevy-intl = { version = "0.4", features = ["bundle-only"] }
 ```
 
 ---

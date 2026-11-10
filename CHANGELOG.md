@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-10
+
+### Changed
+
+- Updated to Bevy 0.20 (no public API changes).
+
 ## [0.3.0] - 2026-05-05
 
 ### Added
@@ -50,4 +56,5 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - "Hot-reloadable during development" claim from the README — no implementation exists.
 - Top-level `#![allow(dead_code)]` from `lib.rs`. The `LOCALES` ISO table is now actively used by the startup locale validation.
 
+[0.4.0]: https://github.com/DelsarteAdam/bevy-intl/releases/tag/v0.4.0
 [0.3.0]: https://github.com/DelsarteAdam/bevy-intl/releases/tag/v0.3.0
