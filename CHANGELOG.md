@@ -7,9 +7,23 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.4.0] - 2026-11-10
 
+### Added
+
+- `I18nPartial::try_t` and `try_t_with_args`: return `Option<String>` (`None` for a missing key) and never log a warning. For keys that may be missing on purpose.
+- `I18nPartial::has(key)`: whether the key exists in the current or fallback language, whatever its shape.
+- `BEVY_INTL_MESSAGES_DIR` build-time variable: tells `build.rs` where the game's `messages/` folder is, for bundled translations (WASM, `bundle-only`). Set it in the game's `.cargo/config.toml` with `relative = true`.
+
 ### Changed
 
 - Updated to Bevy 0.20 (no public API changes).
+- A relative `messages_folder` is now looked up like Bevy's `assets/`: under `BEVY_ASSET_ROOT`, then `CARGO_MANIFEST_DIR`, then next to the executable, then in the working directory. Absolute paths are unchanged.
+- Missing-key and missing-placeholder warnings are logged once per key instead of on every call (a UI redrawn every frame used to flood the console).
+- When bundled translations are empty and bevy-intl falls back to the filesystem, it now uses `I18nConfig.messages_folder` instead of a hard-coded `"messages"`.
+- `t_with_gender` now logs a warning (once) for a missing key, like the other methods.
+
+### Fixed
+
+- **Bundled translations never worked for projects depending on bevy-intl.** `build.rs` searched for `messages/` from bevy-intl's own folder (and its parent folders), never from the game's, so it bundled an empty JSON and printed "No messages/ folder found … This is normal" on every build. It now reads `BEVY_INTL_MESSAGES_DIR`, only warns when bundling is actually expected (WASM or `bundle-only`), reports the path of invalid JSON files, and watches the right folder for changes.
 
 ## [0.3.0] - 2026-05-05
 

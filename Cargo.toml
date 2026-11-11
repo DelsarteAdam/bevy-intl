@@ -9,6 +9,9 @@ repository = "https://github.com/DelsarteAdam/bevy-intl"
 authors = ["Delsarte Adam"]
 readme = "README.md"
 
+[lints.rust]
+# The formatter adds parentheses around closure bodies: no warning for them.
+unused_parens = "allow"
 
 [features]
 default = []

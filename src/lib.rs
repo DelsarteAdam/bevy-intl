@@ -3,7 +3,7 @@
 //! # bevy-intl
 //!
 //! A comprehensive internationalization (i18n) plugin for [Bevy](https://bevyengine.org/) that provides:
-//! 
+//!
 //! - **WASM Compatible**: Automatic translation bundling for web deployment
 //! - **Flexible Loading**: Filesystem (desktop) or bundled files (WASM)
 //! - **Feature Flag**: `bundle-only` to force bundled translations on any platform
@@ -11,13 +11,13 @@
 //! - **Gender Support**: Gendered translations
 //! - **Placeholders**: Dynamic text replacement
 //! - **Fallback System**: Automatic fallback to default language
-//! 
+//!
 //! ## Quick Start
-//! 
-//! ```rust
+//!
+//! ```rust,no_run
 //! use bevy::prelude::*;
 //! use bevy_intl::I18nPlugin;
-//! 
+//!
 //! fn main() {
 //!     App::new()
 //!         .add_plugins(DefaultPlugins)
@@ -25,10 +25,10 @@
 //!         .add_systems(Startup, setup_ui)
 //!         .run();
 //! }
-//! 
+//!
 //! fn setup_ui(mut commands: Commands, i18n: Res<bevy_intl::I18n>) {
 //!     let text = i18n.translation("ui");
-//!     
+//!
 //!     commands.spawn((
 //!         Text::new(text.t("welcome")),
 //!         Node::default(),
@@ -56,15 +56,15 @@ use bevy::prelude::*;
 mod components;
 mod locales;
 
-pub use components::{I18nMode, I18nText, LanguageChanged, update_i18n_text};
+pub use components::{ I18nMode, I18nText, LanguageChanged, update_i18n_text };
 
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::collections::{ HashMap, HashSet };
+use std::sync::{ LazyLock, Mutex };
 use serde_json::Value;
 use locales::LOCALES;
 use regex::Regex;
-use intl_pluralrules::{PluralRules, PluralRuleType, PluralCategory};
+use intl_pluralrules::{ PluralRules, PluralRuleType, PluralCategory };
 use unic_langid::LanguageIdentifier;
 
 /// Build an argument slice for the named-placeholder translation methods.
@@ -90,19 +90,20 @@ macro_rules! i18n_args {
 }
 
 /// Configuration for the I18n plugin.
-/// 
+///
 /// Controls how translations are loaded and which languages to use.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
 /// use bevy_intl::I18nConfig;
-/// 
+///
 /// let config = I18nConfig {
 ///     use_bundled_translations: false,
 ///     messages_folder: "locales".to_string(),
 ///     default_lang: "fr".to_string(),
 ///     fallback_lang: "en".to_string(),
+///     ..Default::default()
 /// };
 /// ```
 #[derive(Debug, Clone, Resource)]
@@ -112,6 +113,11 @@ pub struct I18nConfig {
     pub use_bundled_translations: bool,
     /// Path to the messages folder containing translation files.
     /// Default: "messages"
+    ///
+    /// An absolute path is used as is. A relative path is looked up the same
+    /// way Bevy's `AssetPlugin` looks up `assets/`: under `BEVY_ASSET_ROOT` if
+    /// set, then under `CARGO_MANIFEST_DIR` (set by `cargo run`), then next to
+    /// the executable, and finally in the current working directory.
     pub messages_folder: String,
     /// Default language code to use.
     /// Default: "en"
@@ -188,16 +194,16 @@ impl Plugin for I18nPlugin {
 }
 
 /// Represents a value in a translation file.
-/// 
+///
 /// Can be either a simple text string or a nested map for plurals/genders.
-/// 
+///
 /// # Examples
-/// 
+///
 /// Simple text:
 /// ```json
 /// "greeting": "Hello"
 /// ```
-/// 
+///
 /// Nested map for plurals:
 /// ```json
 /// "items": {
@@ -227,7 +233,7 @@ type FileMap = HashMap<String, SectionMap>;
 type LangMap = HashMap<String, FileMap>;
 
 /// Contains all translations loaded from filesystem or bundled data.
-/// 
+///
 /// Organized as: `languages -> files -> keys -> values`
 #[derive(Debug, Deserialize)]
 pub struct Translations {
@@ -236,16 +242,16 @@ pub struct Translations {
 }
 
 /// Main resource for accessing translations in Bevy systems.
-/// 
+///
 /// Provides methods to load translation files, get translated text,
 /// and manage current language settings.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
 /// use bevy::prelude::*;
 /// use bevy_intl::I18n;
-/// 
+///
 /// fn my_system(i18n: Res<I18n>) {
 ///     let translations = i18n.translation("ui");
 ///     let text = translations.t("welcome_message");
@@ -273,7 +279,7 @@ impl FromWorld for I18n {
         let config = world.get_resource::<I18nConfig>().cloned().unwrap_or_default();
 
         let (translations, locale_folders_list) = if config.use_bundled_translations {
-            load_bundled_translations()
+            load_bundled_translations(&config.messages_folder)
         } else {
             load_filesystem_translations(&config.messages_folder)
         };
@@ -281,10 +287,7 @@ impl FromWorld for I18n {
         if config.warn_unknown_locales {
             for locale in &locale_folders_list {
                 if !locale_exists_as_international_standard(locale) {
-                    warn!(
-                        "Locale folder '{}' is not a recognized ISO/CLDR locale code",
-                        locale
-                    );
+                    warn!("Locale folder '{}' is not a recognized ISO/CLDR locale code", locale);
                 }
             }
         }
@@ -292,13 +295,15 @@ impl FromWorld for I18n {
         if !locale_folders_list.contains(&config.default_lang) {
             warn!(
                 "Default language '{}' not found in loaded translations (available: {:?})",
-                config.default_lang, locale_folders_list
+                config.default_lang,
+                locale_folders_list
             );
         }
         if !locale_folders_list.contains(&config.fallback_lang) {
             warn!(
                 "Fallback language '{}' not found in loaded translations (available: {:?})",
-                config.fallback_lang, locale_folders_list
+                config.fallback_lang,
+                locale_folders_list
             );
         }
 
@@ -318,12 +323,13 @@ fn build_plural_rules(locales: &[String]) -> HashMap<String, PluralRules> {
     let mut map = HashMap::new();
     for lang in locales {
         match lang.parse::<LanguageIdentifier>() {
-            Ok(langid) => match PluralRules::create(langid, PluralRuleType::CARDINAL) {
-                Ok(rules) => {
-                    map.insert(lang.clone(), rules);
+            Ok(langid) =>
+                match PluralRules::create(langid, PluralRuleType::CARDINAL) {
+                    Ok(rules) => {
+                        map.insert(lang.clone(), rules);
+                    }
+                    Err(e) => warn!("no CLDR plural rules for '{}': {}", lang, e),
                 }
-                Err(e) => warn!("no CLDR plural rules for '{}': {}", lang, e),
-            },
             Err(e) => warn!("could not parse '{}' as a language identifier: {}", lang, e),
         }
     }
@@ -346,13 +352,40 @@ fn cldr_category_to_str(cat: PluralCategory) -> &'static str {
 // Loading from filesystem (dev/desktop mode)
 #[cfg(not(target_arch = "wasm32"))]
 fn load_filesystem_translations(messages_folder: &str) -> (Translations, Vec<String>) {
-    match load_translation_from_fs(messages_folder) {
+    let folder = resolve_messages_folder(messages_folder);
+    match load_translation_from_fs(&folder) {
         Ok(langs) => build_translations(langs),
         Err(e) => {
-            warn!("Failed to load translations from '{}': {}", messages_folder, e);
+            warn!("Failed to load translations from '{}': {}", folder.display(), e);
             create_error_translations()
         }
     }
+}
+
+/// Find the messages folder the way Bevy's `AssetPlugin` finds `assets/`.
+///
+/// An absolute path is returned unchanged. A relative one is tried, in order,
+/// under `BEVY_ASSET_ROOT`, `CARGO_MANIFEST_DIR` (set by `cargo run`), and the
+/// executable's folder; the first candidate that exists wins. If none exists,
+/// the path is returned as is, i.e. relative to the working directory.
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_messages_folder(messages_folder: &str) -> std::path::PathBuf {
+    use std::path::{ Path, PathBuf };
+
+    let folder = Path::new(messages_folder);
+    if folder.is_absolute() {
+        return folder.to_path_buf();
+    }
+
+    let env_dir = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let exe_dir = || std::env::current_exe().ok()?.parent().map(Path::to_path_buf);
+
+    [env_dir("BEVY_ASSET_ROOT"), env_dir("CARGO_MANIFEST_DIR"), exe_dir()]
+        .into_iter()
+        .flatten()
+        .map(|base| base.join(folder))
+        .find(|candidate| candidate.is_dir())
+        .unwrap_or_else(|| folder.to_path_buf())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -365,14 +398,18 @@ fn load_filesystem_translations(_messages_folder: &str) -> (Translations, Vec<St
 }
 
 // Loading from bundled translations (bundled at build time)
-fn load_bundled_translations() -> (Translations, Vec<String>) {
+fn load_bundled_translations(messages_folder: &str) -> (Translations, Vec<String>) {
+    #[cfg(target_arch = "wasm32")]
+    let _ = messages_folder;
     match load_bundled_data() {
         Ok(langs) => {
             if langs.is_empty() {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    warn!("Bundled translations empty, falling back to filesystem");
-                    return load_filesystem_translations("messages");
+                    warn!(
+                        "Bundled translations empty (was BEVY_INTL_MESSAGES_DIR set at build time?), falling back to filesystem"
+                    );
+                    return load_filesystem_translations(messages_folder);
                 }
                 #[cfg(target_arch = "wasm32")]
                 {
@@ -401,14 +438,14 @@ fn load_bundled_data() -> Result<LangMap, Box<dyn std::error::Error>> {
     const BUNDLED_TRANSLATIONS: &str = include_str!(
         concat!(env!("OUT_DIR"), "/all_translations.json")
     );
-    
+
     // Check if bundled translations are empty (happens when bevy-intl is built standalone)
     let value: Value = serde_json::from_str(BUNDLED_TRANSLATIONS)?;
     if !matches!(value.as_object(), Some(obj) if !obj.is_empty()) {
         // Return empty translation map - will fall back to filesystem loading
         return Ok(HashMap::new());
     }
-    
+
     parse_translation_value(value)
 }
 
@@ -443,17 +480,14 @@ fn parse_translation_value(value: Value) -> Result<LangMap, Box<dyn std::error::
 
 // Filesystem version
 #[cfg(not(target_arch = "wasm32"))]
-fn load_translation_from_fs(messages_folder: &str) -> std::io::Result<LangMap> {
+fn load_translation_from_fs(message_dir: &std::path::Path) -> std::io::Result<LangMap> {
     use std::fs;
-    use std::path::Path;
-
-    let message_dir = Path::new(messages_folder);
 
     if !message_dir.exists() {
         return Err(
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("{} folder not found", messages_folder)
+                format!("{} folder not found", message_dir.display())
             )
         );
     }
@@ -514,8 +548,7 @@ fn parse_section_value(val: &Value) -> Option<SectionValue> {
     }
     let obj = val.as_object()?;
 
-    let has_only_object_values = !obj.is_empty()
-        && obj.values().all(|v| v.is_object());
+    let has_only_object_values = !obj.is_empty() && obj.values().all(|v| v.is_object());
 
     if has_only_object_values {
         let mut nested = HashMap::new();
@@ -624,28 +657,28 @@ impl LanguageAppExt for App {
 // ---------- Translation Handling ----------
 
 /// Represents translations for a single file.
-/// 
+///
 /// Provides methods to access translated text with support for
 /// placeholders, plurals, and gendered translations.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
 /// use bevy::prelude::*;
 /// use bevy_intl::I18n;
-/// 
+///
 /// fn display_text(i18n: Res<I18n>) {
 ///     let t = i18n.translation("ui");
-///     
+///
 ///     // Simple translation
 ///     let greeting = t.t("hello");
-///     
+///
 ///     // With placeholder
 ///     let welcome = t.t_with_arg("welcome", &[&"John"]);
-///     
+///
 ///     // Plural form
 ///     let items = t.t_with_plural("item_count", 5);
-///     
+///
 ///     // Gendered translation
 ///     let title = t.t_with_gender("title", "male");
 /// }
@@ -752,17 +785,17 @@ impl I18n {
     }
 
     /// Gets the current language code.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The current language code as a string slice.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// use bevy::prelude::*;
     /// use bevy_intl::I18n;
-    /// 
+    ///
     /// fn show_current_language(i18n: Res<I18n>) {
     ///     println!("Current language: {}", i18n.get_lang());
     /// }
@@ -772,17 +805,17 @@ impl I18n {
     }
 
     /// Gets a list of all available languages.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A slice of available language codes.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// use bevy::prelude::*;
     /// use bevy_intl::I18n;
-    /// 
+    ///
     /// fn list_languages(i18n: Res<I18n>) {
     ///     for lang in i18n.available_languages() {
     ///         println!("Available: {}", lang);
@@ -799,31 +832,70 @@ static ARG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{\{(\w+)\}\}").u
 
 impl I18nPartial<'_> {
     /// Gets a translated string for the given key.
-    /// 
+    ///
     /// Falls back to the fallback language if the key is not found
     /// in the current language.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `key` - Translation key to look up
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The translated string, or "Missing translation" if not found.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
+    /// # use bevy::prelude::*;
+    /// # use bevy_intl::{ I18n, i18n_args };
+    /// # fn example(i18n: Res<I18n>) {
     /// let text = i18n.translation("ui").t("hello");
+    /// # }
     /// ```
     pub fn t(&self, key: &str) -> String {
         match self.get_text_value(key) {
             Some(s) => s,
             None => {
-                warn!("translation key '{}' not found (no fallback either)", key);
+                warn_once("text", key, || {
+                    format!("translation key '{}' not found (no fallback either)", key)
+                });
                 "Missing translation".to_string()
             }
         }
+    }
+
+    /// Gets a translated string, or `None` if the key has no text value in the
+    /// current or fallback language. Never logs a warning.
+    ///
+    /// Use this for keys that may be missing on purpose (optional help texts,
+    /// documentation keys built at runtime…).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use bevy::prelude::*;
+    /// # use bevy_intl::I18n;
+    /// # fn example(i18n: Res<I18n>) {
+    /// if let Some(doc) = i18n.translation("doc").try_t("builtin.len") {
+    ///     println!("{doc}");
+    /// }
+    /// # }
+    /// ```
+    pub fn try_t(&self, key: &str) -> Option<String> {
+        self.get_text_value(key)
+    }
+
+    /// Like [`try_t`](Self::try_t), with **named** placeholder replacement.
+    /// Returns `None` if the key is missing; never logs a warning for that.
+    pub fn try_t_with_args(&self, key: &str, args: &[(&str, &dyn ToString)]) -> Option<String> {
+        self.get_text_value(key).map(|template| replace_named_placeholders(&template, args))
+    }
+
+    /// Whether `key` exists in the current or fallback language, whatever its
+    /// shape (plain text, plural/gender map, or gender × plural).
+    pub fn has(&self, key: &str) -> bool {
+        self.file_translations.contains_key(key) || self.fallback_translation.contains_key(key)
     }
 
     /// Gets a translated string with **named** placeholder replacement.
@@ -839,12 +911,16 @@ impl I18nPartial<'_> {
     /// # Example
     ///
     /// ```rust
+    /// # use bevy::prelude::*;
+    /// # use bevy_intl::{ I18n, i18n_args };
+    /// # fn example(i18n: Res<I18n>) {
     /// // JSON: "welcome": "Hello {{name}}, you have {{count}} messages"
     /// // Either with the macro:
     /// let text = i18n.translation("ui").t_with_args("welcome", i18n_args!{ name = "John", count = 5 });
     /// // Or as explicit tuples:
     /// let text = i18n.translation("ui").t_with_args("welcome", &[("name", &"John"), ("count", &5)]);
     /// // Result: "Hello John, you have 5 messages"
+    /// # }
     /// ```
     pub fn t_with_args(&self, key: &str, args: &[(&str, &dyn ToString)]) -> String {
         let template = self.t(key);
@@ -871,27 +947,31 @@ impl I18nPartial<'_> {
     }
 
     /// Gets a pluralized translation based on count.
-    /// 
+    ///
     /// Uses advanced plural rules with fallback priority:
     /// 1. Exact count ("0", "1", "2", etc.)
     /// 2. ICU categories ("zero", "one", "two", "few", "many")
     /// 3. Basic fallback ("one" vs "other")
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `key` - Translation key to look up
     /// * `count` - Number to determine plural form
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The translated string with count placeholder replaced.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
+    /// # use bevy::prelude::*;
+    /// # use bevy_intl::{ I18n, i18n_args };
+    /// # fn example(i18n: Res<I18n>) {
     /// // JSON: "items": { "one": "One item", "many": "{{count}} items" }
     /// let text = i18n.translation("ui").t_with_plural("items", 5);
     /// // Result: "5 items"
+    /// # }
     /// ```
     pub fn t_with_plural(&self, key: &str, count: usize) -> String {
         // 1. Try exact count first (e.g., "0", "1", "2"...) — most specific.
@@ -921,7 +1001,9 @@ impl I18nPartial<'_> {
             return replace_named_placeholders(&template, &[("count", &count)]);
         }
 
-        warn!("plural translation '{}' not found for count {}", key, count);
+        warn_once("plural", key, || {
+            format!("plural translation '{}' not found for count {}", key, count)
+        });
         "Missing plural translation".to_string()
     }
 
@@ -930,7 +1012,9 @@ impl I18nPartial<'_> {
     fn plural_category(&self, count: usize) -> Option<&'static str> {
         if let Some(rules) = self.plural_rules {
             match rules.select(count) {
-                Ok(cat) => return Some(cldr_category_to_str(cat)),
+                Ok(cat) => {
+                    return Some(cldr_category_to_str(cat));
+                }
                 Err(e) => warn!("CLDR plural rule selection failed: {}", e),
             }
         }
@@ -967,19 +1051,18 @@ impl I18nPartial<'_> {
             return replace_named_placeholders(&template, &[("count", &count)]);
         }
 
-        warn!(
-            "gender+plural translation '{}' missing for gender '{}' count {}",
-            key, gender, count
-        );
+        warn_once("gender+plural", key, || {
+            format!(
+                "gender+plural translation '{}' missing for gender '{}' count {}",
+                key,
+                gender,
+                count
+            )
+        });
         "Missing gender+plural translation".to_string()
     }
 
-    fn get_gender_plural_value(
-        &self,
-        key: &str,
-        gender: &str,
-        plural_key: &str,
-    ) -> Option<String> {
+    fn get_gender_plural_value(&self, key: &str, gender: &str, plural_key: &str) -> Option<String> {
         let pick = |sm: &SectionMap| -> Option<String> {
             match sm.get(key)? {
                 SectionValue::Nested(map) => map.get(gender)?.get(plural_key).cloned(),
@@ -990,27 +1073,34 @@ impl I18nPartial<'_> {
     }
 
     /// Gets a gendered translation.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `key` - Translation key to look up
     /// * `gender` - Gender key (e.g., "male", "female", "neutral")
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The translated string for the specified gender.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
+    /// # use bevy::prelude::*;
+    /// # use bevy_intl::{ I18n, i18n_args };
+    /// # fn example(i18n: Res<I18n>) {
     /// // JSON: "title": { "male": "Mr.", "female": "Ms." }
     /// let text = i18n.translation("ui").t_with_gender("title", "female");
     /// // Result: "Ms."
+    /// # }
     /// ```
     pub fn t_with_gender(&self, key: &str, gender: &str) -> String {
-        self.get_nested_value(key, gender).unwrap_or_else(||
+        self.get_nested_value(key, gender).unwrap_or_else(|| {
+            warn_once("gender", key, || {
+                format!("gender translation '{}' missing for gender '{}'", key, gender)
+            });
             "Missing gender translation".to_string()
-        )
+        })
     }
 
     /// Gets a gendered translation with **named** placeholder replacement.
@@ -1020,17 +1110,21 @@ impl I18nPartial<'_> {
     /// # Example
     ///
     /// ```rust
+    /// # use bevy::prelude::*;
+    /// # use bevy_intl::{ I18n, i18n_args };
+    /// # fn example(i18n: Res<I18n>) {
     /// // JSON: "greeting": { "male": "Hello Mr. {{name}}", "female": "Hello Ms. {{name}}" }
     /// let text = i18n.translation("ui").t_with_gender_and_args(
     ///     "greeting", "male", i18n_args!{ name = "Smith" }
     /// );
     /// // Result: "Hello Mr. Smith"
+    /// # }
     /// ```
     pub fn t_with_gender_and_args(
         &self,
         key: &str,
         gender: &str,
-        args: &[(&str, &dyn ToString)],
+        args: &[(&str, &dyn ToString)]
     ) -> String {
         let template = self.t_with_gender(key, gender);
         replace_named_placeholders(&template, args)
@@ -1043,12 +1137,7 @@ impl I18nPartial<'_> {
         since = "0.3.0",
         note = "use `t_with_gender_and_args` with named tuples (or the `i18n_args!` macro)"
     )]
-    pub fn t_with_gender_and_arg(
-        &self,
-        key: &str,
-        gender: &str,
-        args: &[&dyn ToString],
-    ) -> String {
+    pub fn t_with_gender_and_arg(&self, key: &str, gender: &str, args: &[&dyn ToString]) -> String {
         let template = self.t_with_gender(key, gender);
         replace_positional_placeholders(&template, args)
     }
@@ -1093,7 +1182,28 @@ impl I18nPartial<'_> {
                     ))
             })
     }
+}
 
+// ---------- Warnings ----------
+
+/// `(kind, key)` pairs already reported by [`warn_once`].
+static WARNED: LazyLock<Mutex<HashSet<(&'static str, String)>>> = LazyLock::new(Default::default);
+
+/// Log a warning the first time a given `(kind, key)` pair is reported, and
+/// stay silent afterwards. UIs that redraw every frame (egui…) would otherwise
+/// print the same warning 60 times per second for a single missing key.
+/// Returns whether the warning was logged.
+fn warn_once(kind: &'static str, key: &str, message: impl FnOnce() -> String) -> bool {
+    let first_time = match WARNED.lock() {
+        Ok(mut warned) => warned.insert((kind, key.to_string())),
+        // A poisoned lock only means another thread panicked while logging:
+        // still warn rather than go silent.
+        Err(poisoned) => poisoned.into_inner().insert((kind, key.to_string())),
+    };
+    if first_time {
+        warn!("{}", message());
+    }
+    first_time
 }
 
 // ---------- Placeholder helpers ----------
@@ -1101,18 +1211,18 @@ impl I18nPartial<'_> {
 /// Replace `{{name}}` placeholders by looking up the matching `(name, value)`
 /// pair in `args`. Unknown names are kept literally and a warning is logged.
 fn replace_named_placeholders(template: &str, args: &[(&str, &dyn ToString)]) -> String {
-    ARG_RE
-        .replace_all(template, |caps: &regex::Captures<'_>| {
-            let name = &caps[1];
-            match args.iter().find(|(k, _)| *k == name) {
-                Some((_, v)) => v.to_string(),
-                None => {
-                    warn!("missing value for placeholder '{{{{{}}}}}'", name);
-                    caps[0].to_string()
-                }
+    ARG_RE.replace_all(template, |caps: &regex::Captures<'_>| {
+        let name = &caps[1];
+        match args.iter().find(|(k, _)| *k == name) {
+            Some((_, v)) => v.to_string(),
+            None => {
+                warn_once("placeholder", name, || {
+                    format!("missing value for placeholder '{{{{{}}}}}'", name)
+                });
+                caps[0].to_string()
             }
-        })
-        .into_owned()
+        }
+    }).into_owned()
 }
 
 /// Replace `{{...}}` placeholders **by order of appearance** (positional).
@@ -1120,16 +1230,14 @@ fn replace_named_placeholders(template: &str, args: &[(&str, &dyn ToString)]) ->
 /// existing callers working until they migrate to the named API.
 fn replace_positional_placeholders(template: &str, args: &[&dyn ToString]) -> String {
     let counter = std::cell::Cell::new(0usize);
-    ARG_RE
-        .replace_all(template, |caps: &regex::Captures<'_>| {
-            let i = counter.get();
-            counter.set(i + 1);
-            match args.get(i) {
-                Some(v) => v.to_string(),
-                None => caps[0].to_string(),
-            }
-        })
-        .into_owned()
+    ARG_RE.replace_all(template, |caps: &regex::Captures<'_>| {
+        let i = counter.get();
+        counter.set(i + 1);
+        match args.get(i) {
+            Some(v) => v.to_string(),
+            None => caps[0].to_string(),
+        }
+    }).into_owned()
 }
 
 /// Anglo-centric plural category fallback used when no per-language CLDR
@@ -1203,7 +1311,10 @@ mod tests {
         // slice does not matter — we look up by name.
         let out = replace_named_placeholders(
             "{{name}} has {{count}} apples",
-            &[("count", &5), ("name", &"John")],
+            &[
+                ("count", &5),
+                ("name", &"John"),
+            ]
         );
         assert_eq!(out, "John has 5 apples");
     }
@@ -1218,8 +1329,10 @@ mod tests {
     fn replace_positional_ordered() {
         let one = 1i32;
         let two = 2i32;
-        let out =
-            replace_positional_placeholders("{{a}} and {{b}}", &[&one as &dyn ToString, &two]);
+        let out = replace_positional_placeholders(
+            "{{a}} and {{b}}",
+            &[&one as &dyn ToString, &two]
+        );
         assert_eq!(out, "1 and 2");
     }
 
@@ -1234,16 +1347,18 @@ mod tests {
 
     #[test]
     fn i18n_args_macro_expansion() {
-        let args = i18n_args!{ name = "John", count = 5 };
+        let args = i18n_args!(name = "John", count = 5);
         // Reconstruct the strings to avoid relying on `dyn ToString` PartialEq.
-        let collected: Vec<(&str, String)> =
-            args.iter().map(|(k, v)| (*k, v.to_string())).collect();
+        let collected: Vec<(&str, String)> = args
+            .iter()
+            .map(|(k, v)| (*k, v.to_string()))
+            .collect();
         assert_eq!(collected, vec![("name", "John".into()), ("count", "5".into())]);
     }
 
     #[test]
     fn i18n_args_macro_empty() {
-        let args = i18n_args!{};
+        let args = i18n_args! {};
         assert!(args.is_empty());
     }
 
@@ -1281,12 +1396,25 @@ mod tests {
 
     #[test]
     fn parse_section_value_nested() {
-        let v: Value =
-            serde_json::from_str(r#"{"male":{"one":"a"},"female":{"one":"b"}}"#).unwrap();
+        let v: Value = serde_json
+            ::from_str(r#"{"male":{"one":"a"},"female":{"one":"b"}}"#)
+            .unwrap();
         match parse_section_value(&v) {
             Some(SectionValue::Nested(m)) => {
-                assert_eq!(m.get("male").and_then(|i| i.get("one")).map(String::as_str), Some("a"));
-                assert_eq!(m.get("female").and_then(|i| i.get("one")).map(String::as_str), Some("b"));
+                assert_eq!(
+                    m
+                        .get("male")
+                        .and_then(|i| i.get("one"))
+                        .map(String::as_str),
+                    Some("a")
+                );
+                assert_eq!(
+                    m
+                        .get("female")
+                        .and_then(|i| i.get("one"))
+                        .map(String::as_str),
+                    Some("b")
+                );
             }
             other => panic!("expected Nested, got {:?}", other),
         }
@@ -1349,8 +1477,8 @@ mod tests {
             single_lang(
                 "en",
                 "ui",
-                make_section(&[("greeting", SectionValue::Text("Hello".into()))]),
-            ),
+                make_section(&[("greeting", SectionValue::Text("Hello".into()))])
+            )
         );
         assert_eq!(i18n.translation("ui").t("greeting"), "Hello");
     }
@@ -1361,10 +1489,14 @@ mod tests {
         let mut files = FileMap::new();
         files.insert(
             "ui".into(),
-            make_section(&[(
-                "welcome",
-                SectionValue::Text("Hi {{name}}, you have {{count}} messages".into()),
-            )]),
+            make_section(
+                &[
+                    (
+                        "welcome",
+                        SectionValue::Text("Hi {{name}}, you have {{count}} messages".into()),
+                    ),
+                ]
+            )
         );
         langs.insert("en".into(), files);
         let i18n = make_i18n("en", "en", langs);
@@ -1372,33 +1504,43 @@ mod tests {
         let t = i18n.translation("ui");
         let out = t.t_with_args(
             "welcome",
-            &[("name", &"John"), ("count", &5)],
+            &[
+                ("name", &"John"),
+                ("count", &5),
+            ]
         );
         assert_eq!(out, "Hi John, you have 5 messages");
     }
 
     #[test]
     fn t_with_plural_polish() {
-        let mut sections = make_section(&[(
-            "apples",
-            SectionValue::Map(
-                [
-                    ("one".into(), "{{count}} jabłko".into()),
-                    ("few".into(), "{{count}} jabłka".into()),
-                    ("many".into(), "{{count}} jabłek".into()),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        )]);
+        let mut sections = make_section(
+            &[
+                (
+                    "apples",
+                    SectionValue::Map(
+                        [
+                            ("one".into(), "{{count}} jabłko".into()),
+                            ("few".into(), "{{count}} jabłka".into()),
+                            ("many".into(), "{{count}} jabłek".into()),
+                        ]
+                            .into_iter()
+                            .collect()
+                    ),
+                ),
+            ]
+        );
         // Add an exact-count override to verify priority.
         sections.insert(
             "free".into(),
             SectionValue::Map(
-                [("0".into(), "Brak".into()), ("other".into(), "{{count}} szt".into())]
+                [
+                    ("0".into(), "Brak".into()),
+                    ("other".into(), "{{count}} szt".into()),
+                ]
                     .into_iter()
-                    .collect(),
-            ),
+                    .collect()
+            )
         );
         let mut files = FileMap::new();
         files.insert("ui".into(), sections);
@@ -1437,10 +1579,7 @@ mod tests {
         let t = i18n.translation("ui");
 
         assert_eq!(t.t_with_gender_and_plural("guests", "male", 1), "1 guest (M)");
-        assert_eq!(
-            t.t_with_gender_and_plural("guests", "female", 3),
-            "3 guests (F)"
-        );
+        assert_eq!(t.t_with_gender_and_plural("guests", "female", 3), "3 guests (F)");
     }
 
     #[test]
@@ -1448,7 +1587,7 @@ mod tests {
         let mut en_files = FileMap::new();
         en_files.insert(
             "ui".into(),
-            make_section(&[("greet", SectionValue::Text("Hello".into()))]),
+            make_section(&[("greet", SectionValue::Text("Hello".into()))])
         );
         let mut fr_files = FileMap::new();
         // fr has the file but no `greet`, so we fall back to en.
@@ -1464,15 +1603,8 @@ mod tests {
 
     #[test]
     fn try_set_lang_unknown_returns_err() {
-        let mut i18n = make_i18n(
-            "en",
-            "en",
-            single_lang("en", "ui", make_section(&[])),
-        );
-        assert_eq!(
-            i18n.try_set_lang("xx"),
-            Err(I18nError::LocaleNotFound("xx".into()))
-        );
+        let mut i18n = make_i18n("en", "en", single_lang("en", "ui", make_section(&[])));
+        assert_eq!(i18n.try_set_lang("xx"), Err(I18nError::LocaleNotFound("xx".into())));
         // Current language unchanged.
         assert_eq!(i18n.get_lang(), "en");
     }
@@ -1496,5 +1628,106 @@ mod tests {
         let i18n = make_i18n("en", "en", langs);
         let avail: Vec<&str> = i18n.available_languages().iter().map(String::as_str).collect();
         assert_eq!(avail, vec!["en", "fr", "zh"]);
+    }
+
+    // --- Optional lookups ---
+
+    fn optional_lookup_i18n() -> I18n {
+        let mut en_files = FileMap::new();
+        en_files.insert(
+            "doc".into(),
+            make_section(
+                &[
+                    ("builtin.len", SectionValue::Text("Length of {{what}}".into())),
+                    (
+                        "items",
+                        SectionValue::Map(
+                            [("other".into(), "{{count}} items".into())].into_iter().collect()
+                        ),
+                    ),
+                ]
+            )
+        );
+        let mut fr_files = FileMap::new();
+        fr_files.insert("doc".into(), make_section(&[]));
+        let mut langs = LangMap::new();
+        langs.insert("en".into(), en_files);
+        langs.insert("fr".into(), fr_files);
+        make_i18n("fr", "en", langs)
+    }
+
+    #[test]
+    fn try_t_returns_none_for_missing_key() {
+        let i18n = optional_lookup_i18n();
+        let t = i18n.translation("doc");
+        assert_eq!(t.try_t("keyword.while"), None);
+        assert_eq!(i18n.translation("no-such-file").try_t("x"), None);
+    }
+
+    #[test]
+    fn try_t_uses_fallback_and_args() {
+        let i18n = optional_lookup_i18n();
+        let t = i18n.translation("doc");
+        assert_eq!(t.try_t("builtin.len").as_deref(), Some("Length of {{what}}"));
+        assert_eq!(
+            t.try_t_with_args("builtin.len", &[("what", &"a list")]).as_deref(),
+            Some("Length of a list")
+        );
+        assert_eq!(t.try_t_with_args("missing", &[("what", &"x")]), None);
+    }
+
+    #[test]
+    fn try_t_ignores_non_text_values() {
+        let i18n = optional_lookup_i18n();
+        let t = i18n.translation("doc");
+        // A plural map is not plain text: try_t gives None, but has() sees it.
+        assert_eq!(t.try_t("items"), None);
+        assert!(t.has("items"));
+    }
+
+    #[test]
+    fn has_checks_current_and_fallback() {
+        let i18n = optional_lookup_i18n();
+        let t = i18n.translation("doc");
+        assert!(t.has("builtin.len"));
+        assert!(!t.has("keyword.while"));
+    }
+
+    // --- Warnings ---
+
+    #[test]
+    fn warn_once_reports_each_key_once() {
+        // Unique keys so parallel tests cannot interfere.
+        let key = "warn_once_test.unique_key";
+        assert!(warn_once("test", key, || "first".into()));
+        assert!(!warn_once("test", key, || "second".into()));
+        // Same key, other kind: reported separately.
+        assert!(warn_once("test-other", key, || "other kind".into()));
+    }
+
+    // --- Messages folder lookup ---
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn resolve_messages_folder_keeps_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(resolve_messages_folder(dir.path().to_str().unwrap()), dir.path());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn resolve_messages_folder_uses_manifest_dir() {
+        // `cargo test` sets CARGO_MANIFEST_DIR to this crate, which has `src/`.
+        let expected = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        assert_eq!(resolve_messages_folder("src"), expected);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn resolve_messages_folder_unknown_stays_relative() {
+        assert_eq!(
+            resolve_messages_folder("this-path-does-not-exist-xyz"),
+            std::path::Path::new("this-path-does-not-exist-xyz")
+        );
     }
 }

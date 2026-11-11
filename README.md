@@ -28,7 +28,7 @@ bevy-intl = "0.4"
 # bevy-intl = { version = "0.4", features = ["bundle-only"] }
 ```
 
-```rust
+```rust,no_run
 use bevy::prelude::*;
 use bevy_intl::{I18nPlugin, I18nConfig};
 
@@ -79,6 +79,19 @@ src/
 ```
 
 A folder name that is not a recognized ISO/CLDR locale logs a warning at startup. Disable with `I18nConfig.warn_unknown_locales = false` if you intentionally use custom codes.
+
+---
+
+### Where `messages/` is looked up
+
+An absolute `messages_folder` is used as is. A relative one (the default, `"messages"`) is looked up like Bevy's `AssetPlugin` looks up `assets/`:
+
+1. under `BEVY_ASSET_ROOT`, if set;
+2. under `CARGO_MANIFEST_DIR` (set by `cargo run`, so it points to your game);
+3. next to the executable;
+4. in the current working directory.
+
+The first folder that exists wins.
 
 ---
 
@@ -142,14 +155,24 @@ fn translation_system(i18n: Res<I18n>) {
 
     // Gender + plural (nested JSON)
     let _ = t.t_with_gender_and_plural("guests", "female", 3);
+
+    // Optional keys: `None` when missing, and no warning
+    if let Some(text) = t.try_t("tooltip.optional") { /* show it */ }
+    let _ = t.try_t_with_args("welcome", i18n_args!{ name = "John", count = 5 });
+    let _ = t.has("apples"); // any shape: text, plural/gender map, nested
 }
 ```
+
+A missing key makes `t`, `t_with_plural`, `t_with_gender`… return a `"Missing …"` text and log a warning. The warning is logged **once per key**, so a UI redrawn every frame (egui…) does not flood the console. For keys that may be missing on purpose, use `try_t` / `try_t_with_args`.
 
 > **Deprecated** — `t_with_arg` and `t_with_gender_and_arg` (positional placeholders) still work but ignore placeholder names in your JSON. Migrate to `t_with_args` / `t_with_gender_and_args` for proper named substitution.
 
 ### Switching language
 
 ```rust
+use bevy::prelude::*;
+use bevy_intl::I18n;
+
 fn change_language_system(mut i18n: ResMut<I18n>) {
     // Logging variant:
     i18n.set_lang("fr");
@@ -167,7 +190,8 @@ fn change_language_system(mut i18n: ResMut<I18n>) {
 
 `set_lang_i18n` / `set_fallback_lang` are also available on `App` (via `LanguageAppExt`) for setting the language at startup *before* `app.run()`:
 
-```rust
+```rust,no_run
+use bevy::prelude::*;
 use bevy_intl::{I18nPlugin, LanguageAppExt};
 
 App::new()
@@ -183,7 +207,7 @@ App::new()
 
 Spawn an `I18nText` next to any text node and it stays in sync — no manual rebuild loop, no boilerplate. When the language changes, every `I18nText` is re-rendered and a `LanguageChanged` message is broadcast.
 
-```rust
+```rust,no_run
 use bevy::prelude::*;
 use bevy_intl::{I18nPlugin, I18n, I18nText, I18nMode, LanguageChanged};
 
@@ -234,6 +258,17 @@ To force bundled mode on every target — for example, to ship a single binary:
 ```toml
 bevy-intl = { version = "0.4", features = ["bundle-only"] }
 ```
+
+### Telling the build where `messages/` is
+
+Cargo runs bevy-intl's `build.rs` in bevy-intl's own folder (in `~/.cargo/registry` once installed from crates.io), never in your game, so it cannot find your `messages/` folder on its own. Point it there with the `BEVY_INTL_MESSAGES_DIR` variable, in your game's `.cargo/config.toml`:
+
+```toml
+[env]
+BEVY_INTL_MESSAGES_DIR = { value = "messages", relative = true }
+```
+
+`relative = true` makes the path relative to the folder that contains `.cargo/` (your project root). The build fails with a clear message if the path is not absolute or not a folder. If the variable is unset, nothing is bundled; on WASM or with `bundle-only`, the build then prints a warning. The bundle is rebuilt whenever a file in that folder changes.
 
 ---
 
